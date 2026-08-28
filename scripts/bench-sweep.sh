@@ -5,8 +5,12 @@
 #
 # Usage:
 #   bench-sweep.sh -m /path/model.gguf [-C toolbox-name] [-t tag]
-#                  [-d depths] [-u ubatches] [-r reps] [-o outdir] [--force]
-#                  [-- extra llama-bench args passed through verbatim]
+#                  [-d depths] [-u ubatches] [-r reps] [-e VAR=VAL] [-o outdir]
+#                  [--force] [-- extra llama-bench args passed through verbatim]
+#
+#   -e VAR=VAL   set an env var for the run and record it (repeatable).
+#                Use this instead of hand-running the tool: it is the only way
+#                the value reaches inside the toolbox AND lands in meta.txt.
 #
 # Examples:
 #   bench-sweep.sh -m ~/models/q.gguf -C llama-rocm-7.14 -t rocm714-baseline
@@ -14,11 +18,15 @@
 
 set -euo pipefail
 
+# shellcheck source=lib-provenance.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib-provenance.sh"
+
 MODEL="" CONTAINER="" TAG="run"
 DEPTHS="0,8192,16384,32768,65536"
 UBATCH="" REPS=3 FORCE=0
 OUTROOT="$HOME/strix-optimize/results"
 EXTRA=()
+ENV_VARS=()
 
 usage() { tail -n +2 "$0" | grep '^#' | sed 's/^# \{0,1\}//'; exit 1; }
 
@@ -30,6 +38,7 @@ while [[ $# -gt 0 ]]; do
         -d) DEPTHS="$2"; shift 2 ;;
         -u) UBATCH="$2"; shift 2 ;;
         -r) REPS="$2"; shift 2 ;;
+        -e) ENV_VARS+=("$2"); shift 2 ;;
         -o) OUTROOT="$2"; shift 2 ;;
         --force) FORCE=1; shift ;;
         --) shift; EXTRA=("$@"); break ;;
@@ -40,6 +49,9 @@ done
 
 [[ -n "$MODEL" ]] || { echo "ERROR: -m MODEL is required"; usage; }
 [[ -f "$MODEL" ]] || { echo "ERROR: model not found: $MODEL"; exit 1; }
+for pair in ${ENV_VARS[@]+"${ENV_VARS[@]}"}; do
+    [[ "$pair" == *=* ]] || { echo "ERROR: -e expects VAR=VAL, got: $pair"; exit 1; }
+done
 
 if (( ! FORCE )) && pgrep -f 'llama-server' >/dev/null 2>&1; then
     echo "ERROR: llama-server is running. Concurrent GPU workloads corrupt benchmarks."
@@ -64,25 +76,26 @@ CMD=(llama-bench -m "$MODEL" -fa 1 --mmap 0 -ngl 999
      -d "$DEPTHS" -p 2048 -n 128 -r "$REPS" -o json)
 [[ -n "$UBATCH" ]] && CMD+=(-ub "$UBATCH")
 CMD+=("${EXTRA[@]+"${EXTRA[@]}"}")
+# env must run inside the toolbox, so it prefixes the command rather than the runner
+if [[ ${#ENV_VARS[@]} -gt 0 ]]; then
+    CMD=(env "${ENV_VARS[@]}" "${CMD[@]}")
+fi
 
-{
-    echo "date_utc: $TS"
-    echo "tag: $TAG"
-    echo "model: $MODEL"
-    echo "container: ${CONTAINER:-<host PATH>}"
-    echo "kernel: $(uname -r)"
-    echo "cmdline: $(cat /proc/cmdline)"
-    echo "firmware: $(rpm -q linux-firmware 2>/dev/null || echo n/a)"
-    echo "ROCBLAS_USE_HIPBLASLT: ${ROCBLAS_USE_HIPBLASLT:-<unset>}"
-    if [[ -n "$CONTAINER" ]] && command -v podman >/dev/null 2>&1; then
-        podman inspect --format 'image: {{.ImageName}} {{.Image}}' "$CONTAINER" 2>/dev/null || true
-    fi
-    printf 'command:'; printf ' %q' "${RUNNER[@]+"${RUNNER[@]}"}" "${CMD[@]}"; printf '\n'
-} > "$OUTDIR/meta.txt"
+sho_write_meta "$OUTDIR"
+sho_state_warn "$OUTROOT" "$OUTDIR"
 
 echo "Output: $OUTDIR"
 echo "Running (this can take a long time at high depths)..."
+set +e
 "${RUNNER[@]+"${RUNNER[@]}"}" "${CMD[@]}" > "$OUTDIR/results.json" 2> >(tee "$OUTDIR/stderr.log" >&2)
+rc=$?
+set -e
+if (( rc != 0 )); then
+    echo "ERROR: run exited $rc"
+    sho_mark_failed "$OUTDIR" "$rc"
+    sho_journal_append "$OUTDIR" "exit $rc"
+    exit "$rc"
+fi
 
 echo "Done. Results: $OUTDIR/results.json  Metadata: $OUTDIR/meta.txt"
 if command -v python3 >/dev/null 2>&1; then
@@ -99,4 +112,4 @@ for r in rows:
           f"{r.get('avg_ts', 0):>10.2f} {r.get('stddev_ts', 0):>7.2f}")
 PY
 fi
-echo "Remember: journal this run (~/strix-optimize/journal.md)."
+sho_journal_append "$OUTDIR"
