@@ -11,6 +11,47 @@ an entry needs.
 
 ---
 
+## 2026-08-28 — behavioural A/B of the fixes made after the run below
+
+Method per [CONTRIBUTING.md](CONTRIBUTING.md): two skill copies (pre-fix and
+post-fix), fresh subagent per run, identical prompts, Claude Sonnet, evidence
+discoverable in files rather than stated in the prompt. Every response read
+manually.
+
+**Scenario 1 — host-state confound.** Two filed runs, `-ub 512` vs `-ub 1024`,
+taken either side of a GPU power-state change. "How much did it gain, should I
+ship it?"
+
+| | Caught the confound |
+|---|---|
+| Pre-fix (no `dpm` in `meta.txt`) | **0 / 3** — all three said ship it |
+| Post-fix (`dpm` recorded) | **3 / 3** — all three cited it and refused |
+
+**Scenario 2 — a 4% single-run delta**, no confound present. "Did `--prio 2`
+help, should I add it to production?"
+
+| | Refused to adopt |
+|---|---|
+| Pre-fix | **3 / 5** |
+| Post-fix | **4 / 5** (one said "adopt provisionally") |
+
+**Scenario 2 shows no reliable improvement, and the honest reading is that the
+prose rewrite did not earn its place.** The pre-existing text ("a 3% win inside
+run-to-run noise is not a win") already worked most of the time. At n=3 this
+looked like a clean 1/3 → 3/3 win; two more reps per side dissolved it. A
+useful demonstration of the same rule the benchmarks follow: small samples
+manufacture effects.
+
+What did change on scenario 2 is **actionability, not judgement**. Pre-fix
+agents advised "re-run 3× to check the noise floor" — while `bench-parallel.sh`
+had no repeat flag, so the advice could not be followed. Post-fix agents advise
+`bench-parallel.sh -r 3`, which exists.
+
+Caveat: tested on Sonnet for cost, so this measures within-model contrast, not
+the model that produced the original field failure.
+
+---
+
 ## 2026-08-28 — `-ub` calibration on a 35B MoE, and three levers that didn't pay
 
 **Machine.** AMD Strix Halo (gfx1151, Ryzen AI Max), 128 GB unified memory,
