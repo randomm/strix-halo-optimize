@@ -36,6 +36,30 @@ regressions that its own data could not support.
    when they differ from your previous run. That banner means stop and
    re-baseline, not proceed carefully.
 
+### Behaviour claims: how to A/B a prose change
+
+Changing what the skill *says* is changing what Claude *does*, so it needs
+evidence like any other change. You don't need the hardware for this — the
+scenarios are text.
+
+1. Make two copies of the skill: one at current `main`, one with your edit.
+2. Write a scenario that tempts the failure, and hand it to a **fresh subagent**
+   with each copy. Same prompt, no shared context.
+3. Run it **at least 3 times per side**. Model output is sampled; a single run
+   proves nothing. Read every response yourself rather than grepping for a
+   keyword — near-misses and quoted counter-examples both look like hits.
+4. Report the split (e.g. "0/3 before, 3/3 after") in your PR.
+
+**Do not put the answer in the prompt.** The first attempt at validating the
+host-state rule handed the agent both power-state values side by side and asked
+if the comparison was sound. Every run passed, including the unmodified
+control — which proves only that the scenario was too easy. The real test made
+the evidence *discoverable but not highlighted*, matching what an agent actually
+faces. Then the control failed 3/3 and the change was worth something.
+
+If the control doesn't fail, there is nothing to fix. Stop, and don't add the
+words.
+
 ## The journal entry is the unit of contribution
 
 The bench scripts prepend a skeleton entry to `~/strix-optimize/journal.md` on
