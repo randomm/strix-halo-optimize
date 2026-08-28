@@ -32,9 +32,20 @@ techniques the scripts don't cover.
   reps 3, cooldown between runs. Deviate deliberately, not accidentally.
   Note: benchmark comparisons run KV quant off even though production configs
   use `-ctk/-ctv q8_0` — benchmark the production config separately as type 3.
-- **Repetitions ≥3** and look at variance; a 3% "win" inside run-to-run noise
-  is not a win. Cooldown (~10 s+) between heavy runs for thermal comparability;
-  for sustained-load truth, note results at thermal steady state (30 min in).
+- **Know this machine's spread before believing any delta.** Measure it once:
+  `bench-parallel.sh -r 3` (or `bench-sweep.sh -r 3`) reruns the sweep and
+  prints per-row spread. That percentage is the machine's floor. A delta counts
+  as real when it is larger than the spread; below it, the honest report is
+  "unproven", not "small win". Re-measure the spread after any host change.
+  Cooldown (~10 s+) between heavy runs for thermal comparability; for
+  sustained-load truth, note results at thermal steady state (30 min in).
+- **A host state change voids your baseline.** Kernel, firmware, boot
+  parameters, and GPU power state
+  (`power_dpm_force_performance_level`) all move the numbers. If any changed
+  since the baseline was taken, the old numbers are not a comparison — retake
+  the baseline under current state first. The bench scripts capture these into
+  `meta.txt` and print a loud banner when they differ from the previous run;
+  that banner means stop and re-baseline, not proceed carefully.
 - **Record provenance with every result**: date, toolbox tag + image digest,
   llama.cpp build (printed in bench output), kernel, relevant env vars
   (`ROCBLAS_USE_HIPBLASLT`...), and the exact command. The scripts capture

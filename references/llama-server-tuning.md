@@ -43,7 +43,12 @@ At long context × many slots, KV dwarfs everything but weights.
   q4_0 KV exists but quality risk rises; benchmark on real agent transcripts
   before adopting.
 - **`--cache-reuse 256`:** enables prefix-cache chunk reuse — big TTFT win for
-  agent loops that resend growing transcripts with a stable prefix.
+  agent loops that resend growing transcripts with a stable prefix. **Cannot be
+  measured with the bench scripts**: it is a llama-server flag and
+  `llama-batched-bench` rejects it outright (`error: invalid argument:
+  --cache-reuse`). Verifying it needs live-serving measurement (type 3 in
+  `benchmarking.md`) against a real server with repeated growing-prefix
+  requests. Currently unverified on this hardware.
 - **`--cache-ram <MiB>`** (build-dependent): host-side prompt cache budget.
 - Slot save/restore endpoints exist for persisting agent KV across restarts —
   niche, check `--help`.
@@ -89,8 +94,11 @@ prompt processing).
 
 ## Quality-of-service and misc
 
-- `--prio 2` raises process priority — helps when agents' compilers compete
-  for CPU with the server's CPU-side work.
+- `--prio 2` raises process priority. Plausible when agents' compilers compete
+  for CPU with the server's CPU-side work, but measured **slower** for prefill
+  on gfx1151/ROCm in the one filed test (see FINDINGS.md 2026-08-28 — the
+  measured deficit was partly confounded, and the residual was inside the
+  machine's spread). Treat as untested: A/B it, don't assume it.
 - `--jinja` + `--chat-template-file` for models whose templates matter to tool
   calling (they do, for coding agents).
 - `--no-warmup` speeds restarts during tuning loops but the first request
@@ -105,13 +113,19 @@ prompt processing).
 128 GB machine, ~17 GiB Q4_K_XL coder model, 6 agents, 32k each:
 
 ```bash
-ROCBLAS_USE_HIPBLASLT=1 llama-server \
+llama-server \
   -m Qwen-coder-Q4_K_XL.gguf -ngl 999 -fa 1 --no-mmap \
   -c 196608 -np 6 -ctk q8_0 -ctv q8_0 \
   -b 2048 -ub 1024 \
-  --cache-reuse 256 --metrics --prio 2 \
+  --cache-reuse 256 --metrics \
   --jinja --host 0.0.0.0 --port 8080
 ```
+
+Deliberately **not** in this baseline: `ROCBLAS_USE_HIPBLASLT=1` and `--prio 2`.
+Both are coin flips this file tells you to A/B, and both measured as
+regressions the one time they were filed. Add them only after your own
+benchmark says they help — `bench-parallel.sh -e ROCBLAS_USE_HIPBLASLT=1`
+records the toggle in the run's provenance.
 
 Then: fit check under load → `bench-parallel.sh` at `-npl 4,6,8` → ubatch
 sweep → spec-decoding trial if tg-bound. Journal each step.

@@ -1,12 +1,12 @@
 ---
 name: strix-halo-optimize
-description: Full-stack performance optimization for an AMD Strix Halo (gfx1151, Ryzen AI Max) machine running Fedora with Toolbx containers — kernel boot parameters, unified memory (GTT/TTM), Vulkan/ROCm toolboxes, llama.cpp/llama-server tuning, benchmarking, model and quant selection, and Unsloth fine-tuning on AMD. Use whenever the user wants to speed up, tune, benchmark, diagnose, or configure LLM inference on this machine — "why is llama-server slow", "which toolbox/backend should I use", "tune for parallel agents", "does this model fit in memory", kernel parameter or GTT/VRAM questions, toolbox refresh decisions, backend comparisons, or fine-tuning/quantizing models locally with Unsloth. Trigger even for single-layer questions (one flag, one kernel param, one memory number) — the methodology and dated facts snapshot here prevent stale or contradictory advice, which is common in this fast-moving space.
+description: Use when tuning, benchmarking, or diagnosing LLM inference on an AMD Strix Halo (gfx1151, Ryzen AI Max) machine — llama-server or llama.cpp is slow, choosing between ROCm and Vulkan RADV/AMDVLK toolboxes, prefill or decode throughput at long context, parallel agent slots and KV cache budget, GTT/VRAM or kernel boot parameter questions, whether a model or quant fits in unified memory, toolbox refresh decisions, or Unsloth fine-tuning on AMD. Applies to single-flag and single-number questions too.
 license: MIT
 metadata:
   hardware: "AMD Strix Halo (gfx1151, Ryzen AI Max), 128 GB unified memory"
   host_os: "Fedora, backends in Toolbx containers (kyuz0/amd-strix-halo-toolboxes)"
   primary_workload: ">=4 parallel coding agents, long context, software development"
-  facts_snapshot: "2026-08-27"
+  facts_snapshot: "2026-08-28"
 ---
 
 # Strix Halo Full-Stack Optimization
@@ -123,24 +123,43 @@ llama-server before benchmarking. Never leave the machine in an unbootable or
 unclear state at the end of a session — the journal must always describe the
 current config.
 
-## Current facts snapshot (2026-08 — verify before relying on)
+## Current facts snapshot (2026-08-28 — verify before relying on)
 
-- Stable host: Fedora 43, kernel 6.18.9. Kernels **< 6.18.4 have a gfx1151
-  stability bug** — avoid. **linux-firmware-20251125 breaks ROCm** on Strix
-  Halo — avoid; 20260110 known good.
-- Boot params (124 GiB to iGPU on a 128 GB machine):
-  `amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit=32505856`
-- Non-negotiable llama.cpp flags on this hardware: `-fa 1 --no-mmap -ngl 999`
-  (crashes/slowdowns without them).
-- Backend crossover: Vulkan RADV strongest for short-context tg and overall
-  compatibility; ROCm (7.14) strongest for prefill and long context; AMDVLK
-  fast but ≤2 GiB single-buffer limit blocks some large models. Experimental
-  tags (`rocm-7.14-performance`, `vulkan-radv-performance`, `rocmfpx`) exist —
-  measure, don't assume.
-- MTP speculative decoding is merged into upstream llama.cpp; the old `-mtp`
-  toolbox images are deprecated.
-- Unsloth officially supports AMD including gfx1151 (Studio + notebooks;
-  TheRock gfx1151 nightlies for PyTorch). Working but with sharp edges.
+Each fact is tagged with **how it is known**. Confidence is not uniform, and the
+weakest tag is the one most likely to waste your time:
+
+- `[measured]` — benchmarked on a real gfx1151 box; see `FINDINGS.md`
+- `[reported]` — from a dated primary source in `references/research-sources.md`
+- `[assumed]` — inherited convention, never independently checked here
+
+Facts:
+
+- `[measured]` Fedora 43 on kernel **6.18.16** with **linux-firmware-20260221**
+  runs gfx1151 + ROCm stably.
+- `[reported]` Kernels **< 6.18.4 have a gfx1151 stability bug** — avoid.
+  **linux-firmware-20251125 breaks ROCm** on Strix Halo — avoid.
+- `[measured]` Boot params in use on the reference box (124 GiB to iGPU on
+  128 GB): `amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit=32505856`,
+  plus `amdgpu.no_system_mem_limit=1 amdgpu.cwsr_enable=0`.
+- `[assumed]` Non-negotiable llama.cpp flags on this hardware:
+  `-fa 1 --no-mmap -ngl 999` (crashes/slowdowns without them). Widely repeated;
+  never A/B'd here.
+- `[reported]` Backend crossover: Vulkan RADV strongest for short-context tg and
+  overall compatibility; ROCm strongest for prefill and long context; AMDVLK
+  fast but ≤2 GiB single-buffer limit blocks some large models. **Not verified
+  here** — every filed benchmark ran on `rocm-7.2.4`, so the ranking between
+  toolbox tags is untested on this hardware. Note tags differ in llama.cpp build
+  as well as ROCm version, so a "backend" comparison is never one variable.
+- `[measured]` `-ub 1024` beat the `-ub 512` default by ~22% prefill on a MoE
+  model at `rocm-7.2.4`; the curve is model- and backend-specific, so calibrate
+  rather than adopting the number.
+- `[reported]` MTP speculative decoding is merged into upstream llama.cpp; the
+  old `-mtp` toolbox images are deprecated.
+- `[reported]` Unsloth officially supports AMD including gfx1151 (Studio +
+  notebooks; TheRock gfx1151 nightlies for PyTorch). Working but sharp edges.
+
+When you verify or refute one of these, change its tag, add the evidence to
+`FINDINGS.md`, and bump `facts_snapshot` in the frontmatter.
 
 ## Scripts
 
@@ -153,13 +172,31 @@ All scripts are safe by default: `probe-system.sh` is read-only;
   JSON results + metadata filed automatically.
 - `scripts/bench-parallel.sh` — llama-batched-bench wrapper sweeping parallel
   levels (default 1,2,4,8) to model the multi-agent workload.
+- `scripts/lib-provenance.sh` — shared by both bench scripts (not run directly).
+
+Both bench scripts:
+
+- `-e VAR=VAL` sets an env var for the run **and** records it. Use this for
+  `ROCBLAS_USE_HIPBLASLT` and friends — running the tool by hand to set a
+  variable produces a number with no provenance, which is not evidence.
+- `-r N` repeats the sweep and reports per-row spread — the machine's noise
+  floor. Deltas below it are unproven.
+- Warn loudly when kernel, firmware, boot cmdline, or GPU power state changed
+  since the previous run. That means the earlier baseline is void; retake it.
+- Write a `FAILED` marker when the workload exits non-zero, so a broken run
+  cannot be mistaken for a result.
+- Append a journal entry automatically (below).
 
 Scripts pass unknown args through to the underlying tool, because llama.cpp
 flags drift; check `--help` inside the toolbox when in doubt.
 
 ## Journal
 
-Keep `~/strix-optimize/journal.md`, newest entry on top:
+`~/strix-optimize/journal.md`, newest entry on top. The bench scripts prepend a
+skeleton entry on every run with the host state pre-filled; your job is to
+replace the `TODO` lines while the run is fresh. Read the journal at session
+start if it exists, and write entries by hand for changes no script made
+(boot params, firmware, BIOS, server config).
 
 ```markdown
 ## 2026-08-27 — ubatch sweep, rocm-7.14, Qwen3.6-27B Q4_K_XL
