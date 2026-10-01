@@ -92,6 +92,39 @@ Never mix "toolbox refreshed" with any other change in one benchmark cycle.
 - llama.cpp RPC in these images supports RDMA (RoCEv2) for multi-node; on
   Toolbx, `refresh-toolboxes.sh` auto-adds `/dev/infiniband` when present.
 
+## Non-llama.cpp engines (watch list, not recommendations)
+
+Engines that claim to beat llama.cpp appear often. Treat each as a hypothesis:
+check model coverage first (most of them do not cover the newest architectures),
+then measure on this machine with the procedure above. Facts dated per entry.
+
+- **Magnitude** (github.com/magnitudedev/magnitude, Apache 2.0) `[reported]`,
+  checked 2026-10-01 at commit `7280034`. Rust engine that compiles and autotunes
+  its kernels on the device; OpenAI-compatible API; Linux x64 CLI releases.
+  - AMD support is **Vulkan/RADV only** (no ROCm). It requires
+    `VK_KHR_cooperative_matrix`; its own RDNA3 setup guide asks for Mesa RADV
+    26.2+, but RADV 25.3 already exposes the extension on gfx1151 (seen on one
+    Fedora 43 host).
+  - Published speedups ("up to 2x faster than llama.cpp") are **Metal and CUDA
+    only**. Its AMD validation host is a discrete RDNA3 card (Radeon PRO V710);
+    there are no published gfx1151 or Vulkan-vs-llama.cpp numbers. Not verified
+    on gfx1151.
+  - Model coverage is per-family hand-written kernels (`inference/catalog/models.json`).
+    At this commit Qwen3.8-Flash-Next (qwen4exp) is `disabled`
+    ("hyper-connections and QSA attention are not implemented yet"); Gemma-4
+    26B-A4B is supported only as the QAT Q4 GGUF, with no MTP draft (separate
+    drafts are DFlash/DSpark/DFlash2 only).
+  - Hosts with a BIOS VRAM carve-out may see only OS-visible RAM (issue #44,
+    fix in PR #124, both open at this date). Hosts using the GTT-based memory
+    setup (`kernel-and-memory.md`) are not affected.
+  - **Re-check when:** the catalog enables a model you serve, it gains MTP for
+    a family you run with MTP, or it publishes Vulkan/AMD benchmarks.
+  - **Fair test:** the same GGUF in Magnitude and in the `vulkan-radv` and
+    `rocm-*` toolboxes, speculative decoding off on both sides, same depths
+    and slot counts. `bench-sweep.sh` / `bench-parallel.sh` drive llama.cpp
+    only, so Magnitude needs live-serving measurement (`benchmarking.md`,
+    method 3).
+
 ## Building custom (when a PR matters before it merges)
 
 The kyuz0 repo's `toolboxes/` directory has the Dockerfiles; `docs/building.md`

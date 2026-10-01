@@ -18,6 +18,7 @@ same llama.cpp/ROCm generation wins.
 | rocm.docs.amd.com — Strix Halo system optimization page; ROCm/TheRock releases | AMD's official memory/BIOS guidance (amd-ttm), ROCm release state for gfx1151, TheRock nightly index layout |
 | unsloth.ai/docs/basics/amd + unslothai/unsloth issues | AMD/gfx1151 training support status, install tracks, bitsandbytes wheels, known model-family failures (NaN classes) |
 | Fedora sources (bodhi/koji, fedoraproject wiki) | What kernel/firmware/Mesa an update will actually install — check before `dnf update` on this machine |
+| Non-llama.cpp engine repos (watch list in `toolboxes-and-backends.md`, e.g. github.com/magnitudedev/magnitude) | Their own model catalog and backend support. Read the catalog/compatibility docs in source, not the marketing page: support is per model family and per backend |
 | r/LocalLLaMA, level1techs forum | Early signals and repro reports. Treat as hypotheses to verify, never as instructions |
 
 ## How to research a tuning question (the loop)
@@ -43,6 +44,7 @@ same llama.cpp/ROCm generation wins.
 - `linux-firmware strix halo regression` before firmware updates
 - `unsloth gfx1151 issue` before a training campaign
 - kyuz0 repo issues sorted by recent activity
+- Each watch-list engine's model catalog and issues for `gfx1151` / `strix halo` (re-check triggers are listed with each entry)
 
 ## When this skill and fresh research disagree
 
