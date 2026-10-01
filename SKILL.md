@@ -172,6 +172,9 @@ All scripts are safe by default: `probe-system.sh` is read-only;
   JSON results + metadata filed automatically.
 - `scripts/bench-parallel.sh` — llama-batched-bench wrapper sweeping parallel
   levels (default 1,2,4,8) to model the multi-agent workload.
+- `scripts/engine-ab.py` — engine-neutral live-serving (type 3) A/B over any
+  OpenAI-compatible endpoint, measured client-side; use when comparing
+  non-llama.cpp engines or serving configs llama-bench cannot model.
 - `scripts/lib-provenance.sh` — shared by both bench scripts (not run directly).
 
 Both bench scripts:

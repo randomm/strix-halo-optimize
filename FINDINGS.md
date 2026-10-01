@@ -11,6 +11,81 @@ an entry needs.
 
 ---
 
+## 2026-10-01 — Magnitude 0.2.3 vs llama.cpp b11065 on the same GGUFs
+
+**Machine.** AMD Strix Halo (gfx1151, Ryzen AI Max+ 395), 128 GB unified memory, Fedora 43, kernel
+`6.18.16-200.fc43.x86_64`, `linux-firmware-20260221-1.fc43`, Mesa RADV 25.3.6. Boot: `amd_iommu=off
+amdgpu.gttsize=126976 ttm.pages_limit=32505856 amdgpu.no_system_mem_limit=1 amdgpu.cwsr_enable=0`. GPU
+power level `auto`. Caveat: the kernel was tainted (`D`) by an unrelated amdgpu oops nine days earlier
+and had not been rebooted. That applies equally to all three engines.
+
+**Method.** Type 3 (live serving). Each engine served the same file in turn, with nothing else on the
+GPU. One client, `scripts/engine-ab.py`, measured all of them the same way:
+- streamed time to first token, prompt tokens / TTFT as prefill, and decode rate from the stream;
+- distinct prompts, so no prefix-cache wins, at temperature 0 with thinking off, generating 256 tokens;
+- 3 reps per point, at about 2k, 8k and 30k tokens of depth, with concurrency 1, 2 and 4;
+- a per-request codeword that has to be echoed back, as a correctness check.
+
+Engine settings:
+- **llama.cpp:** toolboxes `vulkan-radv` (`sha256:c6b821a9edd5`) and `rocm-10.0` (`sha256:90c5d79b69ad`),
+  both b11065. Flags: `-fa 1 --load-mode none --parallel 4 -c 163840 --kv-unified -ctk f16 -ctv f16`, no
+  speculation, plus `-ub 2048 -b 2048` for Gemma.
+- **Magnitude 0.2.3:** `magnitude serve` (Vulkan) with its catalog's reviewed configuration. One full
+  untimed warm-up pass ran first, so on-device kernel tuning was not counted against it.
+
+At concurrency above 1, per-request numbers spread widely because of queueing. Compare aggregate
+end-to-end throughput there, which repeated within 0–9% everywhere except the failure noted below.
+
+**Gemma-4 26B-A4B, QAT UD-Q4_K_XL.** Magnitude's configuration has no draft, so there was no speculation
+on any side. This is the like-for-like kernel comparison.
+
+| | llama.cpp Vulkan | llama.cpp ROCm | Magnitude |
+|---|---|---|---|
+| Decode, 1 stream, ~1.9k | 66.9 t/s | 55.2 | **69.3** |
+| Prefill, 1 stream, ~1.9k | 1,553 t/s | **1,671** | ~1,100–1,220 |
+| TTFT, 1 stream, ~29k | 27.8 s | **27.4** | 30.9 |
+| Aggregate, 4 streams, ~1.9k | **73.4 t/s** | 68.0 | 65.0 |
+| Aggregate, 4 streams, ~7.4k | **33.4 t/s** | 25.1 | 21.0 |
+| TTFT, 4 streams, ~29k | **80 s** | 120 | 138 |
+| Codewords | 36/36 | 36/36 | **32/36** |
+
+Magnitude's 32/36: one rep at ~7.4k × 4 returned **four empty streams**, with 0 tokens and no error
+after 44.5 s. Its headless server wrote no engine logs (7 startup lines only), so the cause could not be
+diagnosed.
+
+**LFM2.5-2.6B Q8_0.** Magnitude ships DSpark drafting for this model and the user can't select the
+method. llama.cpp ran without speculation, so this table is product against product, not a kernel
+comparison.
+
+| | llama.cpp Vulkan | llama.cpp ROCm | Magnitude (DSpark) |
+|---|---|---|---|
+| Decode, 1 stream, ~2k | 72.8 t/s | 67.9 | **143.7** |
+| Aggregate, 4 streams, ~2k | 137 t/s | **145** | 61 |
+| Aggregate, 4 streams, ~7.8k | 63 t/s | **67** | 16.5 |
+| TTFT, 4 streams, ~31k | 41 s | **39** | 282 |
+
+**Reading.**
+- Magnitude's on-device kernels are at parity on single-stream decode: +3.6% on Gemma, where the
+  spread was 0%. They are 25–30% behind on prefill.
+- Its 2× on LFM single-stream comes from speculative drafting, not from the kernels.
+- Under concurrency, per-request prefill drops by roughly 1/N, which looks like prefill handled one
+  request at a time. Aggregate throughput collapses as depth grows.
+- For the parallel-agent target, where prefill at depth and throughput under concurrency come first,
+  it loses clearly. Not adopted.
+- The empty-stream failure deserves a re-check in any later evaluation.
+
+**Side result.** For llama.cpp b11065 on Gemma QAT Q4, Vulkan beat ROCm on decode (66.9 vs 55.2 t/s) and
+on 4-stream aggregate at 7.4k (33.4 vs 25.1). ROCm was slightly ahead on 2k prefill. On LFM2.5, ROCm led
+prefill (3,703 vs 2,978 t/s) and Vulkan led decode (72.8 vs 67.9). Both models fit the snapshot's
+`[reported]` crossover. This is two models on one build, not enough to retag it `[measured]`.
+
+**Setup notes.** Magnitude does not run from an unpacked package ("installation admission is
+missing"): it needs its system RPM, which is unsigned. Catalog models found in the local Hugging Face
+cache are picked up. Our own cached Q8_0 LFM file was not: its catalog entry pulls its own copy along
+with the draft.
+
+---
+
 ## 2026-08-28 — behavioural A/B of the fixes made after the run below
 
 Method per [CONTRIBUTING.md](CONTRIBUTING.md): two skill copies (pre-fix and
