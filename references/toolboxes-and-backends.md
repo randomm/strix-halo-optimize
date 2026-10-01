@@ -117,6 +117,11 @@ then measure on this machine with the procedure above. Facts dated per entry.
   - Hosts with a BIOS VRAM carve-out may see only OS-visible RAM (issue #44,
     fix in PR #124, both open at this date). Hosts using the GTT-based memory
     setup (`kernel-and-memory.md`) are not affected.
+  - **Measured 2026-10-01 (0.2.3, see `FINDINGS.md`):** single-stream decode on par with llama.cpp
+    (Gemma-4 QAT Q4, no speculation: 69.3 vs 66.9 t/s Vulkan), prefill 25-30% behind, and under
+    concurrency prefill appears to run one request at a time (4 streams at ~30k: TTFT 138-282 s vs
+    39-120 s). One rep returned four silent empty streams. Not adopted for the parallel-agent target.
+    Needs the system RPM (unsigned); an unpacked copy refuses to run.
   - **Re-check when:** the catalog enables a model you serve, it gains MTP for
     a family you run with MTP, or it publishes Vulkan/AMD benchmarks.
   - **Fair test:** the same GGUF in Magnitude and in the `vulkan-radv` and

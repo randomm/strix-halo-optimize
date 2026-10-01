@@ -81,6 +81,7 @@ scripts/
 ├── probe-system.sh               # read-only host/GPU/toolbox snapshot with known-bad-version flags
 ├── bench-sweep.sh                # llama-bench depth-sweep wrapper, files results + provenance
 ├── bench-parallel.sh             # llama-batched-bench wrapper for the concurrency knee
+├── engine-ab.py                  # engine-neutral live-serving A/B over any OpenAI-compatible API
 └── lib-provenance.sh             # shared provenance capture, state-diff guard, journal append
 FINDINGS.md                       # dated log of measurements from real machines
 ```
